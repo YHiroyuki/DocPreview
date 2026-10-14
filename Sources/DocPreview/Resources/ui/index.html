@@ -29,6 +29,14 @@
   <textarea id="pop-text" rows="4" placeholder="コメントを入力（⌘+Enter で追加）"></textarea>
   <div class="row"><button id="pop-cancel">キャンセル</button><button id="pop-ok" class="primary">追加</button></div>
 </div>
+<div id="modal" hidden>
+  <div id="settings">
+    <h3>設定</h3>
+    <label>背景 <select id="set-theme"><option value="light">白</option><option value="dark">黒</option><option value="system">システム</option></select></label>
+    <label>フォントサイズ (px) <input id="set-font" type="number" min="10" max="32" step="1"></label>
+    <div class="row"><button id="set-close" class="primary">閉じる</button></div>
+  </div>
+</div>
 <div id="toast" hidden></div>
 <script src="app.js"></script>
 </body>

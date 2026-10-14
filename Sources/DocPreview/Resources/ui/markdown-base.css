@@ -1,0 +1,5 @@
+body { margin: 0; }
+.markdown-body { box-sizing: border-box; max-width: 980px; margin: 0 auto; padding: 32px 45px 80px; }
+.markdown-body .mermaid { text-align: center; }
+.markdown-body .mermaid-error { white-space: pre; text-align: left; font-family: ui-monospace, Menlo, monospace; }
+@media (max-width: 767px) { .markdown-body { padding: 15px; } }

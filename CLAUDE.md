@@ -8,6 +8,7 @@ macOS 向けの Markdown / HTML プレビューア。ツリー表示、選択範
 
 ## コマンド
 - ビルド: `swift build` / 実行: `swift run DocPreview <path>`
+- 動作検証: `DOCPREVIEW_SNAPSHOT` / `DOCPREVIEW_EVAL` 環境変数（`docs/learnings.md` 参照）。UI 変更後は必ずスナップショットで確認する。
 - .app 作成: `scripts/build-app.sh`（`build/DocPreview.app`）
 
 ## ルール・ドキュメント
