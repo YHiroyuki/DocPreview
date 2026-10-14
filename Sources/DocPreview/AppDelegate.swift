@@ -98,12 +98,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 "settings": [
                     "theme": UserDefaults.standard.string(forKey: "theme") ?? "light",
                     "fontSize": UserDefaults.standard.object(forKey: "fontSize") as? Int ?? 16,
+                    "leftWidth": UserDefaults.standard.object(forKey: "leftWidth") as? Int ?? 260,
+                    "rightWidth": UserDefaults.standard.object(forKey: "rightWidth") as? Int ?? 300,
                 ],
             ], nil)
         case "saveSettings":
             if let s = body["settings"] as? [String: Any] {
                 if let t = s["theme"] as? String { UserDefaults.standard.set(t, forKey: "theme") }
-                if let f = s["fontSize"] as? Int { UserDefaults.standard.set(f, forKey: "fontSize") }
+                for key in ["fontSize", "leftWidth", "rightWidth"] {
+                    if let v = s[key] as? Int { UserDefaults.standard.set(v, forKey: key) }
+                }
             }
             replyHandler(true, nil)
         case "tree":

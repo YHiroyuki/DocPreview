@@ -13,3 +13,7 @@
 - GitHub 風表示は vendored の github-markdown-css(light/dark) + highlight.js + mermaid(動的ロード)。テーマは親の `dpSettings` を iframe 側が同期参照して決める。設定変更時は iframe をリロードする。
 - 動作検証: `screencapture` が使えないため、環境変数 `DOCPREVIEW_EVAL`（JS 評価）/ `DOCPREVIEW_SNAPSHOT`（PNG 保存）/ `DOCPREVIEW_DELAY` を用意した。例: `DOCPREVIEW_SNAPSHOT=/tmp/x.png build/DocPreview.app/Contents/MacOS/DocPreview <path>`。検証で設定（UserDefaults）やコメントが残る点に注意。
 - 設定（背景: 白/黒/システム、フォントサイズ）は ⌘, で開く。フォントサイズは Markdown のみ対象。HTML ドキュメントは元のスタイルのまま。
+
+## 2026-10-14（ペイン幅）
+- 縦の仕切りのドラッグは `setPointerCapture` を使う。iframe 上にカーソルが出ても pointermove を受け取れる（mouse イベントだと iframe に奪われる）。幅は UserDefaults(leftWidth/rightWidth) に保存し、ダブルクリックで既定値に戻す。
+- 合成イベントでのテストでは `setPointerCapture`/`hasPointerCapture` を差し替えないと動かない（実ポインタが無いため）。
