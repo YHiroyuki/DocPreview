@@ -10,7 +10,7 @@ const state = {
   open: new Set(['']), pending: null,
 };
 const frame = $('doc');
-window.dpSettings = { theme: 'light', fontSize: 16 };
+window.dpSettings = { theme: 'light', fontSize: 16, leftWidth: 260, rightWidth: 300 };
 const CTX = 30; // 選択範囲の前後に保存する文脈の文字数
 
 // ---------- ユーティリティ ----------
@@ -385,12 +385,51 @@ $('set-close').onclick = () => ($('modal').hidden = true);
 $('modal').onclick = (e) => { if (e.target.id === 'modal') $('modal').hidden = true; };
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('modal').hidden = true; });
 
+// ---------- ペイン幅の調整 ----------
+const PANE = { left: { min: 160, max: 600, def: 260 }, right: { min: 220, max: 700, def: 300 } };
+function applyPaneWidths() {
+  $('app').style.setProperty('--left', dpSettings.leftWidth + 'px');
+  $('app').style.setProperty('--right', dpSettings.rightWidth + 'px');
+}
+function setupResizer(id, side) {
+  const el = $(id), cfg = PANE[side], key = side + 'Width';
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId); // iframe 上でもドラッグを追従する
+    el.classList.add('dragging');
+    document.body.style.userSelect = 'none';
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    const w = side === 'left' ? e.clientX : window.innerWidth - e.clientX;
+    // 本文が潰れないよう、反対側の幅と本文の最小幅(320px)を考慮して上限を決める
+    const other = side === 'left' ? dpSettings.rightWidth : dpSettings.leftWidth;
+    const max = Math.min(cfg.max, window.innerWidth - other - 320);
+    dpSettings[key] = Math.round(Math.max(cfg.min, Math.min(max, w)));
+    applyPaneWidths();
+  });
+  const end = (e) => {
+    if (!el.classList.contains('dragging')) return;
+    el.classList.remove('dragging');
+    document.body.style.userSelect = '';
+    native('saveSettings', { settings: dpSettings });
+  };
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+  el.addEventListener('dblclick', () => {
+    dpSettings[key] = cfg.def; applyPaneWidths();
+    native('saveSettings', { settings: dpSettings });
+  });
+}
+setupResizer('rz-left', 'left');
+setupResizer('rz-right', 'right');
+
 // ---------- 起動 ----------
 (async () => {
   const init = await native('init');
   Object.assign(state, { name: init.name, root: init.root, tree: init.tree, comments: JSON.parse(init.comments || '[]') });
   Object.assign(dpSettings, init.settings || {});
   applySettings();
+  applyPaneWidths();
   renderTree();
   renderComments();
   const first = init.initialFile || firstFile(init.tree);
