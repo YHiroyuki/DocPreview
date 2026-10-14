@@ -32,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
 
+        runDebugHooks()
+
         // 起動引数（最初の非オプション引数）をパスとして扱う。なければ選択ダイアログ。
         let arg = CommandLine.arguments.dropFirst().first { !$0.hasPrefix("-") }
         if let arg, let ws = Workspace(path: arg) {
@@ -54,6 +56,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         scheme.workspace = ws
         window.title = "DocPreview — \(ws.root.lastPathComponent)"
         webView.load(URLRequest(url: URL(string: "docpreview://app/ui/index.html")!))
+    }
+
+    @objc private func showSettings() {
+        webView.evaluateJavaScript("openSettings()")
     }
 
     @objc private func openPanel() {
@@ -89,7 +95,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
                 "tree": ws.tree(),
                 "comments": store.load(),
+                "settings": [
+                    "theme": UserDefaults.standard.string(forKey: "theme") ?? "light",
+                    "fontSize": UserDefaults.standard.object(forKey: "fontSize") as? Int ?? 16,
+                ],
             ], nil)
+        case "saveSettings":
+            if let s = body["settings"] as? [String: Any] {
+                if let t = s["theme"] as? String { UserDefaults.standard.set(t, forKey: "theme") }
+                if let f = s["fontSize"] as? Int { UserDefaults.standard.set(f, forKey: "fontSize") }
+            }
+            replyHandler(true, nil)
         case "tree":
             replyHandler(ws.tree(), nil)
         case "poll":
@@ -142,7 +158,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             item.submenu = menu
             main.addItem(item)
         }
+        let prefs = NSMenuItem(title: "設定…", action: #selector(showSettings), keyEquivalent: ",")
+        prefs.target = self
         add("DocPreview", [
+            prefs,
             NSMenuItem(title: "DocPreview を終了", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"),
         ])
         let open = NSMenuItem(title: "開く…", action: #selector(openPanel), keyEquivalent: "o")
@@ -156,5 +175,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             NSMenuItem(title: "すべてを選択", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
         ])
         NSApp.mainMenu = main
+    }
+}
+
+// MARK: - 動作検証用フック（環境変数）
+extension AppDelegate {
+    /// DOCPREVIEW_EVAL=<js> : N 秒後に JS を評価して標準出力へ。
+    /// DOCPREVIEW_SNAPSHOT=<png パス> : N 秒後にスナップショットを保存。
+    /// DOCPREVIEW_DELAY=<秒> (既定 3)。いずれか指定時は完了後に終了する。
+    fileprivate func runDebugHooks() {
+        let env = ProcessInfo.processInfo.environment
+        guard env["DOCPREVIEW_EVAL"] != nil || env["DOCPREVIEW_SNAPSHOT"] != nil else { return }
+        let delay = Double(env["DOCPREVIEW_DELAY"] ?? "") ?? 3
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+            func finish() { NSApp.terminate(nil) }
+            func snapshot() {
+                guard let path = env["DOCPREVIEW_SNAPSHOT"] else { return finish() }
+                webView.takeSnapshot(with: nil) { image, _ in
+                    if let tiff = image?.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                       let png = rep.representation(using: .png, properties: [:]) {
+                        try? png.write(to: URL(fileURLWithPath: path))
+                    }
+                    finish()
+                }
+            }
+            if let js = env["DOCPREVIEW_EVAL"] {
+                webView.callAsyncJavaScript(js, arguments: [:], in: nil, in: .page) { result in
+                    switch result {
+                    case .success(let v): print("EVAL:", v ?? "nil")
+                    case .failure(let e): print("EVAL ERROR:", e)
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { snapshot() }
+                }
+            } else {
+                snapshot()
+            }
+        }
     }
 }

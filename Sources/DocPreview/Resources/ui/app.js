@@ -10,6 +10,7 @@ const state = {
   open: new Set(['']), pending: null,
 };
 const frame = $('doc');
+window.dpSettings = { theme: 'light', fontSize: 16 };
 const CTX = 30; // 選択範囲の前後に保存する文脈の文字数
 
 // ---------- ユーティリティ ----------
@@ -100,9 +101,21 @@ function openFile(path, scrollY = 0) {
   renderComments();
 }
 
+// Markdown は非同期に描画されるため、描画完了後に markdown-view.js が dpDocReady を呼ぶ
+window.dpDocReady = () => onDocLoaded();
 frame.addEventListener('load', () => {
+  try {
+    const d = frame.contentDocument;
+    if (d && d.getElementById('content') && !frame.contentWindow.__RENDERED__) return;
+  } catch { return; }
+  onDocLoaded();
+});
+
+function onDocLoaded() {
   let doc, win;
   try { doc = frame.contentDocument; win = frame.contentWindow; if (!doc) return; } catch { return; }
+  if (win.__HANDLED__) return;
+  win.__HANDLED__ = true;
   // iframe 内のリンクで別ファイルに遷移した場合に追従する
   try {
     const p = pathFromUrl(win.location.href);
@@ -110,7 +123,7 @@ frame.addEventListener('load', () => {
   } catch {}
 
   const style = doc.createElement('style');
-  style.textContent = 'mark.dp-hl{background:#fff1a8;color:inherit;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#ffc83d}';
+  style.textContent = 'mark.dp-hl{background:#fff1a8;color:#1f2328;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#ffc83d}';
   doc.head.append(style);
   doc.addEventListener('mouseup', () => setTimeout(() => onSelect(doc, win), 0));
   doc.addEventListener('mousedown', hideAddUi);
@@ -121,13 +134,13 @@ frame.addEventListener('load', () => {
   applyHighlights();
   if (state.scrollY) win.scrollTo(0, state.scrollY);
   native('poll', { path: state.current }).then((r) => (state.mtime = r.mtime));
-});
+}
 
 // ---------- テキスト索引とハイライト ----------
 function buildIndex(doc) {
   const nodes = []; let text = '';
   const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(n.parentNode.nodeName)
+    acceptNode: (n) => /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE)$/.test(n.parentNode.nodeName) || n.parentElement.closest('svg')
       ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT,
   });
   for (let n; (n = w.nextNode());) { nodes.push({ node: n, start: text.length }); text += n.data; }
@@ -344,10 +357,40 @@ setInterval(async () => {
   } catch {}
 }, 1500);
 
+// ---------- 設定 (⌘,) ----------
+function applySettings() {
+  document.documentElement.dataset.theme = dpSettings.theme;
+  document.documentElement.style.fontSize = '';
+}
+function openSettings() {
+  $('set-theme').value = dpSettings.theme;
+  $('set-font').value = dpSettings.fontSize;
+  $('modal').hidden = false;
+}
+function changeSettings() {
+  const size = Math.min(32, Math.max(10, parseInt($('set-font').value, 10) || 16));
+  dpSettings.theme = $('set-theme').value;
+  dpSettings.fontSize = size;
+  native('saveSettings', { settings: dpSettings });
+  applySettings();
+  if (state.current && !frame.hidden) {
+    let y = 0; try { y = frame.contentWindow.scrollY; } catch {}
+    state.scrollY = y;
+    frame.contentWindow.location.reload();
+  }
+}
+$('set-theme').onchange = changeSettings;
+$('set-font').onchange = changeSettings;
+$('set-close').onclick = () => ($('modal').hidden = true);
+$('modal').onclick = (e) => { if (e.target.id === 'modal') $('modal').hidden = true; };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('modal').hidden = true; });
+
 // ---------- 起動 ----------
 (async () => {
   const init = await native('init');
   Object.assign(state, { name: init.name, root: init.root, tree: init.tree, comments: JSON.parse(init.comments || '[]') });
+  Object.assign(dpSettings, init.settings || {});
+  applySettings();
   renderTree();
   renderComments();
   const first = init.initialFile || firstFile(init.tree);

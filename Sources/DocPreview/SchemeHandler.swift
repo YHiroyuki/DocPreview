@@ -61,13 +61,11 @@ final class SchemeHandler: NSObject, WKURLSchemeHandler {
         let safe = json.replacingOccurrences(of: "<", with: "\\u003c")
         let html = """
         <!doctype html><html><head><meta charset="utf-8">
-        <link rel="stylesheet" href="docpreview://app/ui/markdown.css">
+        <link rel="stylesheet" href="docpreview://app/ui/markdown-base.css">
         </head><body><article class="markdown-body" id="content"></article>
-        <script src="docpreview://app/ui/marked.min.js"></script>
-        <script>
-        const src = \(safe)[0];
-        document.getElementById('content').innerHTML = marked.parse(src, { gfm: true });
-        </script></body></html>
+        <script>window.__SOURCE__ = \(safe)[0];</script>
+        <script src="docpreview://app/ui/markdown-view.js"></script>
+        </body></html>
         """
         respond(task, url: url, status: 200, mime: "text/html", data: Data(html.utf8))
     }
