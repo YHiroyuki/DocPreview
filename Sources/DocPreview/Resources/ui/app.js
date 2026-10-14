@@ -122,8 +122,11 @@ function onDocLoaded() {
     if (p !== state.current) { state.current = p; expandTo(p); renderTree(); renderComments(); }
   } catch {}
 
+  const dark = dpSettings.theme === 'dark' || (dpSettings.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   const style = doc.createElement('style');
-  style.textContent = 'mark.dp-hl{background:#fff1a8;color:#1f2328;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#ffc83d}';
+  style.textContent = dark
+    ? 'mark.dp-hl{background:#3d59a1;color:#c0caf5;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#6183bb}'
+    : 'mark.dp-hl{background:#e6c98b;color:#343b58;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#d9a95a}';
   doc.head.append(style);
   doc.addEventListener('mouseup', () => setTimeout(() => onSelect(doc, win), 0));
   doc.addEventListener('mousedown', hideAddUi);

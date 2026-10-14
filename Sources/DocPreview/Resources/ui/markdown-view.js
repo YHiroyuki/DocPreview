@@ -17,8 +17,8 @@
   });
 
   await Promise.all([
-    addCss(base + (dark ? 'github-markdown-dark.css' : 'github-markdown-light.css')),
-    addCss(base + (dark ? 'github-dark.min.css' : 'github.min.css')),
+    addCss(base + (dark ? 'tokyonight-dark.css' : 'tokyonight-light.css')),
+    addCss(base + (dark ? 'tokyonight-hljs-dark.css' : 'tokyonight-hljs-light.css')),
   ]);
   await Promise.all([addJs(base + 'marked.min.js'), addJs(base + 'highlight.min.js')]);
 
@@ -54,7 +54,14 @@
   if (diagrams.length) {
     try {
       await addJs(base + 'mermaid.min.js');
-      mermaid.initialize({ startOnLoad: false, theme: dark ? 'dark' : 'default', securityLevel: 'strict' });
+      mermaid.initialize({
+        startOnLoad: false, securityLevel: 'strict', theme: 'base',
+        themeVariables: dark
+          ? { background: '#1a1b26', primaryColor: '#292e42', primaryTextColor: '#c0caf5', primaryBorderColor: '#7aa2f7',
+              lineColor: '#7982a9', secondaryColor: '#24283b', tertiaryColor: '#16161e', noteBkgColor: '#292e42', noteTextColor: '#c0caf5' }
+          : { background: '#d5d6db', primaryColor: '#cbccd1', primaryTextColor: '#343b58', primaryBorderColor: '#34548a',
+              lineColor: '#6a6f8e', secondaryColor: '#c4c5ca', tertiaryColor: '#d5d6db', noteBkgColor: '#dcd3b4', noteTextColor: '#343b58' },
+      });
       await mermaid.run({ nodes: diagrams });
     } catch (e) {
       diagrams.forEach((d) => { if (!d.querySelector('svg')) d.classList.add('mermaid-error'); });
