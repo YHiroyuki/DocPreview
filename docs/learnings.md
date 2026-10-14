@@ -17,3 +17,8 @@
 ## 2026-10-14（ペイン幅）
 - 縦の仕切りのドラッグは `setPointerCapture` を使う。iframe 上にカーソルが出ても pointermove を受け取れる（mouse イベントだと iframe に奪われる）。幅は UserDefaults(leftWidth/rightWidth) に保存し、ダブルクリックで既定値に戻す。
 - 合成イベントでのテストでは `setPointerCapture`/`hasPointerCapture` を差し替えないと動かない（実ポインタが無いため）。
+
+## 2026-10-14（Tokyo Night テーマ）
+- github-markdown-css は色が CSS 変数でなく HEX 直書きのため、`scripts/gen-tokyonight-css.py` で HEX を置換して `vendor/tokyonight-{light,dark}.css` を生成している。元の `github-markdown-{light,dark}.css` は生成元として vendor に残す。色を調整するときはスクリプトの対応表を直して再生成する。
+- アプリ UI の色は `app.css` の CSS 変数、コードは `tokyonight-hljs-*.css`、mermaid は `markdown-view.js` の `themeVariables`、コメントのハイライトは `app.js` の `onDocLoaded` で、テーマごとに別々に定義している。配色を変えるときは 4 箇所を揃える。
+- HTML ドキュメントは元のスタイルのため、テーマの影響を受けない（背景は白のまま）。
