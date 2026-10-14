@@ -125,8 +125,10 @@ function onDocLoaded() {
   const dark = dpSettings.theme === 'dark' || (dpSettings.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   const style = doc.createElement('style');
   style.textContent = dark
-    ? 'mark.dp-hl{background:#3d59a1;color:#c0caf5;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#6183bb}'
-    : 'mark.dp-hl{background:#e6c98b;color:#343b58;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#d9a95a}';
+    ? 'mark.dp-hl{background:#3d59a1;color:#c0caf5;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#6183bb}' +
+      'mark.dp-find{background:#e0af68;color:#1a1b26;border-radius:2px}mark.dp-find.dp-cur{background:#ff9e64;outline:2px solid #ff9e64}'
+    : 'mark.dp-hl{background:#e6c98b;color:#343b58;cursor:pointer;border-radius:2px}mark.dp-hl.dp-focus{background:#d9a95a}' +
+      'mark.dp-find{background:#f0c36d;color:#343b58;border-radius:2px}mark.dp-find.dp-cur{background:#e98a3c;outline:2px solid #e98a3c}';
   doc.head.append(style);
   doc.addEventListener('mouseup', () => setTimeout(() => onSelect(doc, win), 0));
   doc.addEventListener('mousedown', hideAddUi);
@@ -136,6 +138,7 @@ function onDocLoaded() {
   });
   applyHighlights();
   if (state.scrollY) win.scrollTo(0, state.scrollY);
+  if (!$('findbar').hidden) runFind(false);
   native('poll', { path: state.current }).then((r) => (state.mtime = r.mtime));
 }
 
@@ -157,6 +160,15 @@ function boundaryOffset(idx, doc, container, off) {
     if (b.comparePoint(node, 0) > 0) return start;
   }
   return idx.text.length;
+}
+
+function clearFind(doc) {
+  doc.querySelectorAll('mark.dp-find').forEach((m) => {
+    const p = m.parentNode;
+    while (m.firstChild) p.insertBefore(m.firstChild, m);
+    p.removeChild(m);
+    p.normalize();
+  });
 }
 
 function clearHighlights(doc) {
@@ -206,6 +218,7 @@ function applyHighlights() {
     }
   }
   renderComments();
+  if (!$('findbar').hidden && find.matches !== undefined) runFind(false);
 }
 
 // ---------- 選択 → コメント追加 ----------
@@ -360,6 +373,95 @@ setInterval(async () => {
   } catch {}
 }, 1500);
 
+// ---------- ファイル内検索 (⌘F) ----------
+const find = { matches: undefined, cur: -1, caseSensitive: false, regex: false };
+const FIND_LIMIT = 5000;
+
+function openFind() {
+  const bar = $('findbar'), input = $('find-input');
+  let sel = '';
+  try { sel = frame.contentWindow.getSelection().toString(); } catch {}
+  if (sel && !sel.includes('\n')) input.value = sel;
+  bar.hidden = false;
+  input.focus(); input.select();
+  runFind(true);
+}
+function closeFind() {
+  $('findbar').hidden = true;
+  try { clearFind(frame.contentDocument); } catch {}
+  find.matches = undefined;
+}
+
+function buildMatcher() {
+  const q = $('find-input').value;
+  if (!q) return null;
+  const src = find.regex ? q : q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(src, 'g' + (find.caseSensitive ? '' : 'i') + 'u');
+}
+
+function runFind(jump) {
+  let doc; try { doc = frame.contentDocument; } catch { return; }
+  if (!doc || !doc.body) return;
+  clearFind(doc);
+  const input = $('find-input'), count = $('find-count');
+  input.classList.remove('invalid');
+  find.matches = []; find.cur = -1;
+  let re;
+  try { re = buildMatcher(); } catch (e) {
+    input.classList.add('invalid'); count.textContent = '正規表現が不正'; return;
+  }
+  if (!re) { count.textContent = ''; return; }
+
+  const idx = buildIndex(doc);
+  for (let m; (m = re.exec(idx.text)) && find.matches.length < FIND_LIMIT;) {
+    if (m[0].length === 0) { re.lastIndex++; continue; } // 空マッチは無視
+    find.matches.push([m.index, m.index + m[0].length]);
+  }
+  // 後ろのマッチから順にラップする（前方のオフセットが崩れない）
+  for (let i = find.matches.length - 1; i >= 0; i--) {
+    const [s, e] = find.matches[i];
+    for (const { node, start } of [...idx.nodes].reverse()) {
+      const end = start + node.data.length;
+      if (end <= s || start >= e) continue;
+      const r = doc.createRange();
+      r.setStart(node, Math.max(s, start) - start);
+      r.setEnd(node, Math.min(e, end) - start);
+      if (r.collapsed) continue;
+      const mk = doc.createElement('mark');
+      mk.className = 'dp-find'; mk.dataset.fid = i;
+      r.surroundContents(mk);
+    }
+  }
+  if (find.matches.length) gotoMatch(find.cur >= 0 ? find.cur : 0, jump);
+  else count.textContent = '見つかりません';
+}
+
+function gotoMatch(i, scroll = true) {
+  const n = find.matches.length;
+  if (!n) return;
+  find.cur = (i + n) % n;
+  let doc; try { doc = frame.contentDocument; } catch { return; }
+  doc.querySelectorAll('mark.dp-cur').forEach((m) => m.classList.remove('dp-cur'));
+  const marks = doc.querySelectorAll(`mark.dp-find[data-fid="${find.cur}"]`);
+  marks.forEach((m) => m.classList.add('dp-cur'));
+  if (scroll && marks[0]) marks[0].scrollIntoView({ block: 'center' });
+  $('find-count').textContent = `${find.cur + 1} / ${n}${n >= FIND_LIMIT ? '+' : ''}`;
+}
+const findNext = () => { if (find.matches === undefined) return openFind(); gotoMatch(find.cur + 1); };
+const findPrev = () => { if (find.matches === undefined) return openFind(); gotoMatch(find.cur - 1); };
+
+let findTimer;
+$('find-input').addEventListener('input', () => { clearTimeout(findTimer); findTimer = setTimeout(() => runFind(true), 120); });
+$('find-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); e.shiftKey ? findPrev() : findNext(); }
+  if (e.key === 'Escape') closeFind();
+});
+$('find-next').onclick = findNext;
+$('find-prev').onclick = findPrev;
+$('find-close').onclick = closeFind;
+$('find-case').onclick = (e) => { find.caseSensitive = !find.caseSensitive; e.currentTarget.classList.toggle('on', find.caseSensitive); runFind(true); };
+$('find-regex').onclick = (e) => { find.regex = !find.regex; e.currentTarget.classList.toggle('on', find.regex); runFind(true); };
+
 // ---------- 設定 (⌘,) ----------
 function applySettings() {
   document.documentElement.dataset.theme = dpSettings.theme;
@@ -386,7 +488,7 @@ $('set-theme').onchange = changeSettings;
 $('set-font').onchange = changeSettings;
 $('set-close').onclick = () => ($('modal').hidden = true);
 $('modal').onclick = (e) => { if (e.target.id === 'modal') $('modal').hidden = true; };
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('modal').hidden = true; });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { $('modal').hidden = true; if (!$('findbar').hidden) closeFind(); } });
 
 // ---------- ペイン幅の調整 ----------
 const PANE = { left: { min: 160, max: 600, def: 260 }, right: { min: 220, max: 700, def: 300 } };

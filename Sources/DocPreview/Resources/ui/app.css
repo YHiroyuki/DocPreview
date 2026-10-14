@@ -50,3 +50,9 @@ button:disabled { opacity:.4; cursor:default; }
 #settings select, #settings input { font:inherit; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:6px; padding:3px 6px; }
 #settings input { width:70px; }
 #settings .row { display:flex; justify-content:flex-end; margin-top:16px; }
+#findbar { position:absolute; top:10px; right:18px; z-index:8; display:flex; align-items:center; gap:4px; background:var(--side); border:1px solid var(--border); border-radius:8px; padding:6px; box-shadow:0 4px 16px rgba(0,0,0,.25); }
+#find-input { width:200px; font:inherit; background:var(--bg); color:var(--fg); border:1px solid var(--border); border-radius:5px; padding:3px 6px; }
+#find-input.invalid { border-color:#db4b4b; }
+#find-count { min-width:64px; text-align:center; color:var(--muted); font-size:12px; }
+#findbar button { padding:2px 7px; }
+#findbar button.toggle.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
