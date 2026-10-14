@@ -171,12 +171,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let open = NSMenuItem(title: "開く…", action: #selector(openPanel), keyEquivalent: "o")
         open.target = self
         add("ファイル", [open])
+        func findItem(_ title: String, _ js: String, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
+            let item = BlockItem(title: title, key: key) { [weak self] in self?.webView.evaluateJavaScript(js) }
+            item.keyEquivalentModifierMask = mods
+            return item
+        }
         add("編集", [
             NSMenuItem(title: "取り消す", action: Selector(("undo:")), keyEquivalent: "z"),
             NSMenuItem(title: "カット", action: #selector(NSText.cut(_:)), keyEquivalent: "x"),
             NSMenuItem(title: "コピー", action: #selector(NSText.copy(_:)), keyEquivalent: "c"),
             NSMenuItem(title: "ペースト", action: #selector(NSText.paste(_:)), keyEquivalent: "v"),
             NSMenuItem(title: "すべてを選択", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"),
+            .separator(),
+            findItem("検索…", "openFind()", "f"),
+            findItem("次を検索", "findNext()", "g"),
+            findItem("前を検索", "findPrev()", "g", [.command, .shift]),
         ])
         NSApp.mainMenu = main
     }
@@ -216,4 +225,16 @@ extension AppDelegate {
             }
         }
     }
+}
+
+/// クロージャを実行するメニュー項目
+final class BlockItem: NSMenuItem {
+    private let block: () -> Void
+    init(title: String, key: String, block: @escaping () -> Void) {
+        self.block = block
+        super.init(title: title, action: #selector(run), keyEquivalent: key)
+        target = self
+    }
+    required init(coder: NSCoder) { fatalError() }
+    @objc private func run() { block() }
 }

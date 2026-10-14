@@ -22,3 +22,8 @@
 - github-markdown-css は色が CSS 変数でなく HEX 直書きのため、`scripts/gen-tokyonight-css.py` で HEX を置換して `vendor/tokyonight-{light,dark}.css` を生成している。元の `github-markdown-{light,dark}.css` は生成元として vendor に残す。色を調整するときはスクリプトの対応表を直して再生成する。
 - アプリ UI の色は `app.css` の CSS 変数、コードは `tokyonight-hljs-*.css`、mermaid は `markdown-view.js` の `themeVariables`、コメントのハイライトは `app.js` の `onDocLoaded` で、テーマごとに別々に定義している。配色を変えるときは 4 箇所を揃える。
 - HTML ドキュメントは元のスタイルのため、テーマの影響を受けない（背景は白のまま）。
+
+## 2026-10-14（ファイル内検索）
+- ⌘F / ⌘G / ⇧⌘G はネイティブのメニュー項目（`BlockItem`）から `openFind()` などの JS を呼ぶ。キー入力を WKWebView 側で拾うより確実。
+- 検索は iframe 内の描画後テキストを `buildIndex` で連結して正規表現で走査し、`<mark class="dp-find">` でラップする（コメントのハイライトと同じ方式で、複数ノードにまたがるマッチも可）。後ろのマッチから順にラップするとオフセットが崩れない。
+- 単純検索は正規表現にエスケープして同じ経路で処理する。空マッチは無視し、上限 5000 件。

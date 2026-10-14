@@ -14,6 +14,15 @@
   <main id="main">
     <div id="empty">左のツリーからファイルを選択してください</div>
     <iframe id="doc" hidden></iframe>
+    <div id="findbar" hidden>
+      <input id="find-input" type="text" placeholder="ファイル内を検索" spellcheck="false" autocomplete="off">
+      <button id="find-case" class="toggle" title="大文字小文字を区別">Aa</button>
+      <button id="find-regex" class="toggle" title="正規表現">.*</button>
+      <span id="find-count"></span>
+      <button id="find-prev" title="前へ (⇧⌘G)">▲</button>
+      <button id="find-next" title="次へ (⌘G)">▼</button>
+      <button id="find-close" title="閉じる (Esc)">✕</button>
+    </div>
   </main>
   <div class="resizer" id="rz-left" title="ドラッグで幅を調整（ダブルクリックでリセット）"></div>
   <div class="resizer" id="rz-right" title="ドラッグで幅を調整（ダブルクリックでリセット）"></div>
