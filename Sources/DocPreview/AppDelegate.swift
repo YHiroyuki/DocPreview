@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private var webView: WKWebView!
     private var scheme: SchemeHandler!
     private var workspace: Workspace?
+    private var treeCache: TreeCache?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -53,6 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     private func open(_ ws: Workspace) {
         workspace = ws
+        treeCache = TreeCache(workspace: ws)
+        treeCache?.refresh(force: true)  // 先に走査を始めておく
         scheme.workspace = ws
         window.title = "DocPreview — \(ws.root.lastPathComponent)"
         webView.load(URLRequest(url: URL(string: "docpreview://app/ui/index.html")!))
@@ -84,26 +87,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else {
             return replyHandler(nil, "bad message")
         }
-        guard let ws = workspace else { return replyHandler(nil, "no workspace") }
+        guard let ws = workspace, let cache = treeCache else { return replyHandler(nil, "no workspace") }
         let store = CommentStore(root: ws.root)
 
         switch action {
         case "init":
-            replyHandler([
-                "name": ws.root.lastPathComponent,
-                "root": ws.root.path,
-                "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
-                "initialDir": ws.initialDir as Any,
-                "isGit": ws.isGitRoot,
-                "tree": ws.tree(),
-                "comments": store.load(),
-                "settings": [
-                    "theme": UserDefaults.standard.string(forKey: "theme") ?? "light",
-                    "fontSize": UserDefaults.standard.object(forKey: "fontSize") as? Int ?? 16,
-                    "leftWidth": UserDefaults.standard.object(forKey: "leftWidth") as? Int ?? 260,
-                    "rightWidth": UserDefaults.standard.object(forKey: "rightWidth") as? Int ?? 300,
-                ],
-            ], nil)
+            let comments = store.load()
+            cache.tree { tree in
+                replyHandler([
+                    "name": ws.root.lastPathComponent,
+                    "root": ws.root.path,
+                    "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
+                    "initialDir": ws.initialDir as Any,
+                    "isGit": ws.isGitRoot,
+                    "tree": tree,
+                    "comments": comments,
+                    "settings": [
+                        "theme": UserDefaults.standard.string(forKey: "theme") ?? "light",
+                        "fontSize": UserDefaults.standard.object(forKey: "fontSize") as? Int ?? 16,
+                        "leftWidth": UserDefaults.standard.object(forKey: "leftWidth") as? Int ?? 260,
+                        "rightWidth": UserDefaults.standard.object(forKey: "rightWidth") as? Int ?? 300,
+                    ],
+                ], nil)
+            }
         case "saveSettings":
             if let s = body["settings"] as? [String: Any] {
                 if let t = s["theme"] as? String { UserDefaults.standard.set(t, forKey: "theme") }
@@ -113,7 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             replyHandler(true, nil)
         case "tree":
-            replyHandler(ws.tree(), nil)
+            cache.tree { replyHandler($0, nil) }
         case "poll":
             var mtime = 0.0
             if let rel = body["path"] as? String, !rel.isEmpty,
@@ -121,7 +127,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 atPath: ws.root.appendingPathComponent(rel).path)[.modificationDate] as? Date {
                 mtime = date.timeIntervalSince1970
             }
-            replyHandler(["mtime": mtime, "tree": treeSignature(ws)], nil)
+            cache.refresh()  // 3 秒以上経っていれば裏で再走査
+            replyHandler(["mtime": mtime, "tree": cache.cachedSignature], nil)
         case "saveComments":
             store.save(body["json"] as? String ?? "[]")
             replyHandler(true, nil)
@@ -141,16 +148,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         default:
             replyHandler(nil, "unknown action")
         }
-    }
-
-    private func treeSignature(_ ws: Workspace) -> Int {
-        func flatten(_ node: [String: Any]) -> [String] {
-            let kids = (node["children"] as? [[String: Any]]) ?? []
-            return [node["path"] as? String ?? ""] + kids.flatMap(flatten)
-        }
-        var h = Hasher()
-        flatten(ws.tree()).forEach { h.combine($0) }
-        return h.finalize()
     }
 
     // MARK: - Menu

@@ -32,3 +32,9 @@
 - git ルートは `.git`（worktree/submodule ではファイル）を上に辿って探す。`git` コマンドは呼ばない（GUI アプリの PATH に依存しないため）。シンボリックリンクは解決せず、渡されたパス表記のまま辿る。
 - ルートが変わるとコメントの保存先（ルートのパスのハッシュ）も変わる。非 git → git の切替前に付けたコメントは新しいルートでは見えない。
 - ツリーのアイコンは JS 内のインライン SVG（`ICONS`）。色は `currentColor` / `--accent` で、テーマに追従する。
+
+## 2026-10-15（大きなリポジトリで重い問題）
+- 症状: spark-server（追跡外含め約 13 万ファイル）を開くと固まった。原因は (1) 全ディレクトリを `FileManager` で再帰走査していた、(2) その走査を UI スレッド上で、しかも poll（1.5 秒ごと）のたびにもう一度実行していた。
+- 対策: git 管理下は `git ls-files --cached --others --exclude-standard` で一覧を取る（.gitignore を尊重し、約 0.15 秒）。非 git は `enumerator` で重いディレクトリ（vendor/node_modules 等）を `skipDescendants` する。走査は `TreeCache` でバックグラウンド実行・キャッシュし、poll は `cachedSignature` を返すだけにする（3 秒以上経っていれば裏で再走査）。
+- 教訓: UI スレッド（`userContentController`）で I/O の重い処理をしない。poll で毎回ツリーを作らない。
+- 実測: spark-server の ADR を開いて 0.7 秒で描画完了（ツリー 933 ファイル）。
