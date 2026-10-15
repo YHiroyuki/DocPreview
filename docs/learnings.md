@@ -44,3 +44,11 @@
 - 表示時も中身は読まず `lazy: true` のノードにし、展開した時点で `children` アクション（`Workspace.subtree`）が読む。`.venv` や `.next` のような重い隠しフォルダを開くまで走査しないため。
 - 初期ファイルが隠しパス配下のときは、保存せずに一時的に表示を ON にして、そのフォルダを自動展開（描画時に「開いていて未ロードの lazy ノード」を検出してロード）する。
 - ツリーの再取得（署名変化）で lazy ノードのロード結果は消えるが、開いているものは描画時に再ロードされる。隠しフォルダ内の変更自体は署名に含まれず自動では反映されない。
+
+## 2026-10-15（タブとドラッグ＆ドロップ）
+- ファイルごとのタブではなくウィンドウタブにした理由: ルート外のファイルや別リポジトリのファイルも開け、ツリー・コメント・自動リロードが既存のままタブごとに独立するため。
+- WKWebView はファイルのドロップで自分自身が遷移してしまうので、サブクラス（`DropWebView`）で `draggingEntered/Updated`・`performDragOperation` を上書きして横取りする。ファイル以外のドラッグは `super` に任せる。
+- ウィンドウを閉じるとき、`WKUserContentController` が JS ブリッジを強参照するため `removeScriptMessageHandler` を呼ぶ（呼ばないと `DocWindow` が解放されない）。
+- 起動直後の `application(_:open:)` と競合しないよう、引数なし起動のファイル選択ダイアログは次の run loop に遅らせ、タブが無いときだけ出す。
+- Dock へのドロップと「このアプリで開く」には `Info.plist` の `CFBundleDocumentTypes` が必要（`scripts/build-app.sh` で出力）。
+- 複数タブの実機確認は `open -a build/DocPreview.app <path>` を続けて実行する（`-n` を付けると別インスタンスになりタブにならない）。デバッグフック（EVAL/SNAPSHOT）は最初のタブのみが対象。

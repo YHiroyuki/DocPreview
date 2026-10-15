@@ -129,8 +129,11 @@ function firstFile(node) {
 }
 
 // ---------- ドキュメント表示 ----------
+const reportTitle = () => state.current && native('title', { name: state.current.split('/').pop() });
+
 function openFile(path, scrollY = 0) {
   state.current = path;
+  reportTitle();
   state.mtime = 0;
   state.scrollY = scrollY;
   expandTo(path);
@@ -160,7 +163,7 @@ function onDocLoaded() {
   // iframe 内のリンクで別ファイルに遷移した場合に追従する
   try {
     const p = pathFromUrl(win.location.href);
-    if (p !== state.current) { state.current = p; expandTo(p); renderTree(); renderComments(); }
+    if (p !== state.current) { state.current = p; reportTitle(); expandTo(p); renderTree(); renderComments(); }
   } catch {}
 
   const dark = dpSettings.theme === 'dark' || (dpSettings.theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
