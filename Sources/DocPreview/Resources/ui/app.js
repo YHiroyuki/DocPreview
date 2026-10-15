@@ -324,6 +324,7 @@ function renderComments() {
   $('comment-count').textContent = cs.length ? `(${cs.length})` : '';
   const unsent = cs.filter((c) => !c.sent).length;
   $('send').disabled = !unsent;
+  $('copy-prompt').disabled = !unsent;
   $('send').textContent = unsent ? `Claude Code に依頼 (${unsent})` : 'Claude Code に依頼';
   list.replaceChildren();
   if (!cs.length) {
@@ -384,6 +385,19 @@ function buildPrompt(cs) {
     body,
   ].join('\n');
 }
+
+// cmux を使わず、依頼文をクリップボードに置く（任意の Claude Code セッションに貼り付けて使う）。
+// 送信済みにはしない（実際に渡ったかどうかは分からないため）。
+$('copy-prompt').onclick = async () => {
+  const cs = fileComments().filter((c) => !c.sent);
+  if (!cs.length) return;
+  try {
+    await native('copyText', { text: buildPrompt(cs) });
+    toast(`依頼文をコピーしました（コメント ${cs.length} 件）`);
+  } catch (e) {
+    toast(String(e.message || e), 6000);
+  }
+};
 
 $('send').onclick = async () => {
   const cs = fileComments().filter((c) => !c.sent);
