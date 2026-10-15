@@ -2,7 +2,7 @@
 
 ## 構成
 - `AppDelegate`: ウィンドウ、メニュー、JS ブリッジ（init / tree / poll / saveComments / launchClaude / openPanel）。
-- `Workspace`: パス→ルート決定。git 管理下なら git ルート、そうでなければディレクトリ自体（ファイル指定なら親）。ディレクトリ指定時は `initialDir` を展開して配下の最初のファイルを開く。md/html のツリー生成（git 管理下は `git ls-files`、それ以外は走査）。`TreeCache` がバックグラウンドで走査してキャッシュする。
+- `Workspace`: パス→ルート決定。git 管理下なら git ルート、そうでなければディレクトリ自体（ファイル指定なら親）。ディレクトリ指定時は `initialDir` を展開して配下の最初のファイルを開く。md/html のツリー生成（git 管理下は `git ls-files`、それ以外は走査）。`TreeCache` がバックグラウンドで走査してキャッシュする。`.` 始まりのフォルダは既定で非表示。サイドバーの目アイコンで表示すると遅延ロード用ノード（`lazy`）になり、展開時に `children` アクションで中身を読む。
 - `SchemeHandler`: `docpreview://app/ui/*`（UI）と `/doc/*`（ドキュメント）を配信。Markdown は HTML に整形して返す（`?raw` で生ファイル）。
 - `CommentStore`: コメントを `~/Library/Application Support/DocPreview/comments/<rootハッシュ>.json` に保存。
 - `ClaudeLauncher`: `cmux new-workspace --cwd <root> --command 'claude "$(cat prompt.md)"'` を実行。

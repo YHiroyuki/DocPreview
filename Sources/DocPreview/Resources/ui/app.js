@@ -7,7 +7,7 @@ const $ = (id) => document.getElementById(id);
 const state = {
   name: '', root: '', tree: null, comments: [],
   current: null, mtime: 0, treeSig: null,
-  open: new Set(['']), pending: null,
+  open: new Set(['']), pending: null, showHidden: false, loading: new Set(),
 };
 const frame = $('doc');
 window.dpSettings = { theme: 'light', fontSize: 16, leftWidth: 260, rightWidth: 300 };
@@ -34,6 +34,7 @@ const fileComments = () => state.comments.filter((c) => c.file === state.current
 // ---------- ファイルツリー ----------
 const svg = (d) => `<svg class="ic" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">${d}</svg>`;
 const ICONS = {
+  eye: svg('<path d="M8 3C4.4 3 1.7 5.4.5 8c1.2 2.6 3.9 5 7.5 5s6.3-2.4 7.5-5C14.3 5.4 11.6 3 8 3zm0 1.5A3.5 3.5 0 1 1 8 11.5 3.5 3.5 0 0 1 8 4.5zM8 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/>'),
   chevron: svg('<path d="M6 3.5 10.5 8 6 12.5z"/>'),
   folder: svg('<path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.72.78 13.5 1.75 13.5h12.5c.97 0 1.75-.78 1.75-1.75v-6.5c0-.97-.78-1.75-1.75-1.75H7.7L6.4 2.7a1.75 1.75 0 0 0-1.24-.2z"/>'),
   folderOpen: svg('<path d="M.5 3.75C.5 2.78 1.28 2 2.25 2h2.9c.46 0 .9.18 1.24.5L7.5 3.5h5.25c.97 0 1.75.78 1.75 1.75V6H3.4a1.75 1.75 0 0 0-1.67 1.22L.5 11.2zM2.2 7.5h12.9c.55 0 .93.54.74 1.05l-1.5 4.2a1.25 1.25 0 0 1-1.18.83H2A1.25 1.25 0 0 1 .8 12.1l1.2-3.7c.2-.5.65-.9 1.2-.9z"/>'),
@@ -43,7 +44,9 @@ const ICONS = {
 const fileIcon = (name) => (/\.html?$/i.test(name) ? ICONS.html : ICONS.md);
 
 function renderTree() {
-  $('sidebar-title').textContent = state.name;
+  $('sidebar-name').textContent = state.name;
+  $('toggle-hidden').innerHTML = ICONS.eye;
+  $('toggle-hidden').classList.toggle('on', state.showHidden);
   const counts = {};
   state.comments.filter((c) => !c.sent).forEach((c) => (counts[c.file] = (counts[c.file] || 0) + 1));
 
@@ -61,6 +64,11 @@ function renderTree() {
       const chev = document.createElement('span');
       chev.className = 'chev'; chev.innerHTML = ICONS.chevron;
       icon.innerHTML = open ? ICONS.folderOpen : ICONS.folder;
+      if (node.lazy && !node.loaded && open) loadChildren(node);
+      if (state.loading.has(node.path)) {
+        const l = document.createElement('span'); l.className = 'loading'; l.textContent = '読み込み中…';
+        label.append(l);
+      }
       icon.classList.add('folder');
       label.append(chev, icon, name);
       el.className = 'dir' + (open ? ' open' : '');
@@ -92,6 +100,18 @@ function renderTree() {
   tree.replaceChildren();
   // ルート直下は常に展開して子だけを並べる
   state.tree.children.forEach((c) => tree.append(build(c)));
+}
+
+// 隠しフォルダ（.claude など）の中身は、開いたときに初めて読み込む
+async function loadChildren(node) {
+  if (state.loading.has(node.path)) return;
+  state.loading.add(node.path);
+  try {
+    node.children = await native('children', { path: node.path });
+    node.loaded = true;
+  } catch { node.loaded = true; }
+  state.loading.delete(node.path);
+  renderTree();
 }
 
 function expandTo(path) {
@@ -483,6 +503,13 @@ $('find-close').onclick = closeFind;
 $('find-case').onclick = (e) => { find.caseSensitive = !find.caseSensitive; e.currentTarget.classList.toggle('on', find.caseSensitive); runFind(true); };
 $('find-regex').onclick = (e) => { find.regex = !find.regex; e.currentTarget.classList.toggle('on', find.regex); runFind(true); };
 
+// ---------- 隠しフォルダの表示切替 ----------
+$('toggle-hidden').onclick = async () => {
+  state.showHidden = !state.showHidden;
+  state.tree = await native('setShowHidden', { value: state.showHidden });
+  renderTree();
+};
+
 // ---------- 設定 (⌘,) ----------
 function applySettings() {
   document.documentElement.dataset.theme = dpSettings.theme;
@@ -552,7 +579,7 @@ setupResizer('rz-right', 'right');
 // ---------- 起動 ----------
 (async () => {
   const init = await native('init');
-  Object.assign(state, { name: init.name, root: init.root, tree: init.tree, comments: JSON.parse(init.comments || '[]') });
+  Object.assign(state, { name: init.name, root: init.root, tree: init.tree, showHidden: init.showHidden, comments: JSON.parse(init.comments || '[]') });
   Object.assign(dpSettings, init.settings || {});
   applySettings();
   applyPaneWidths();

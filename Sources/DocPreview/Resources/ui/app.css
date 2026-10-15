@@ -12,7 +12,7 @@ html, body { height:100%; margin:0; font:13px -apple-system, BlinkMacSystemFont,
 aside { background:var(--side); overflow:auto; }
 #sidebar { border-right:1px solid var(--border); }
 #comments { min-width:0; border-left:1px solid var(--border); display:flex; flex-direction:column; }
-#sidebar-title { padding:12px 12px 6px; font-weight:600; position:sticky; top:0; background:var(--side); }
+#sidebar-title { display:flex; align-items:center; justify-content:space-between; gap:6px; padding:10px 8px 6px 12px; font-weight:600; position:sticky; top:0; background:var(--side); }
 #tree { padding:0 4px 12px; }
 .node { display:flex; align-items:center; gap:4px; padding:3px 6px; border-radius:5px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; user-select:none; }
 .node:hover { background:rgba(128,128,128,.15); }
@@ -64,3 +64,8 @@ button:disabled { opacity:.4; cursor:default; }
 #find-count { min-width:64px; text-align:center; color:var(--muted); font-size:12px; }
 #findbar button { padding:2px 7px; }
 #findbar button.toggle.on { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+#sidebar-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.icon-btn { display:inline-flex; align-items:center; padding:3px 5px; border-color:transparent; background:transparent; color:var(--muted); flex:none; }
+.icon-btn:hover { background:rgba(128,128,128,.18); }
+.icon-btn.on { background:var(--accent); color:var(--accent-fg); }
+.node .loading { margin-left:auto; color:var(--muted); font-size:11px; }
