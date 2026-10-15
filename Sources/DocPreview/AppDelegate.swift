@@ -54,7 +54,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
 
     private func open(_ ws: Workspace) {
         workspace = ws
-        treeCache = TreeCache(workspace: ws)
+        let hidden = ws.initialFileIsHidden || UserDefaults.standard.bool(forKey: "showHidden")
+        treeCache = TreeCache(workspace: ws, showHidden: hidden)
         treeCache?.refresh(force: true)  // 先に走査を始めておく
         scheme.workspace = ws
         window.title = "DocPreview — \(ws.root.lastPathComponent)"
@@ -100,6 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                     "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
                     "initialDir": ws.initialDir as Any,
                     "isGit": ws.isGitRoot,
+                    "showHidden": cache.isShowingHidden,
                     "tree": tree,
                     "comments": comments,
                     "settings": [
@@ -118,6 +120,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 }
             }
             replyHandler(true, nil)
+        case "setShowHidden":
+            let value = body["value"] as? Bool ?? false
+            UserDefaults.standard.set(value, forKey: "showHidden")
+            cache.setShowHidden(value) { replyHandler($0, nil) }
+        case "children":
+            cache.subtree(body["path"] as? String ?? "") { replyHandler($0, nil) }
         case "tree":
             cache.tree { replyHandler($0, nil) }
         case "poll":

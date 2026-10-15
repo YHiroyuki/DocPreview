@@ -38,3 +38,9 @@
 - 対策: git 管理下は `git ls-files --cached --others --exclude-standard` で一覧を取る（.gitignore を尊重し、約 0.15 秒）。非 git は `enumerator` で重いディレクトリ（vendor/node_modules 等）を `skipDescendants` する。走査は `TreeCache` でバックグラウンド実行・キャッシュし、poll は `cachedSignature` を返すだけにする（3 秒以上経っていれば裏で再走査）。
 - 教訓: UI スレッド（`userContentController`）で I/O の重い処理をしない。poll で毎回ツリーを作らない。
 - 実測: spark-server の ADR を開いて 0.7 秒で描画完了（ツリー 933 ファイル）。
+
+## 2026-10-15（隠しフォルダの表示切替と遅延ロード）
+- `.` 始まりのフォルダ（.claude / .github など）は既定で非表示。サイドバーの目アイコンで表示/非表示を切り替え、設定は UserDefaults(`showHidden`) に保存する。
+- 表示時も中身は読まず `lazy: true` のノードにし、展開した時点で `children` アクション（`Workspace.subtree`）が読む。`.venv` や `.next` のような重い隠しフォルダを開くまで走査しないため。
+- 初期ファイルが隠しパス配下のときは、保存せずに一時的に表示を ON にして、そのフォルダを自動展開（描画時に「開いていて未ロードの lazy ノード」を検出してロード）する。
+- ツリーの再取得（署名変化）で lazy ノードのロード結果は消えるが、開いているものは描画時に再ロードされる。隠しフォルダ内の変更自体は署名に含まれず自動では反映されない。

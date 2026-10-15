@@ -8,9 +8,26 @@ final class TreeCache {
     private var tree: [String: Any]?
     private var signature = 0
     private var refreshing = false
+    private var showHidden: Bool
     private var lastRefresh = Date.distantPast
 
-    init(workspace: Workspace) { self.workspace = workspace }
+    init(workspace: Workspace, showHidden: Bool) {
+        self.workspace = workspace
+        self.showHidden = showHidden
+    }
+
+    var isShowingHidden: Bool { lock.lock(); defer { lock.unlock() }; return showHidden }
+
+    /// 隠しファイルの表示を切り替え、作り直したツリーを返す。
+    func setShowHidden(_ value: Bool, completion: @escaping ([String: Any]) -> Void) {
+        lock.lock(); showHidden = value; tree = nil; lock.unlock()
+        refresh(force: true, completion: completion)
+    }
+
+    /// 遅延ロード: 隠しフォルダ配下の子ノード
+    func subtree(_ rel: String, completion: @escaping ([[String: Any]]) -> Void) {
+        queue.async { [workspace] in completion(workspace.subtree(rel)) }
+    }
 
     var cachedSignature: Int { lock.lock(); defer { lock.unlock() }; return signature }
 
@@ -31,8 +48,14 @@ final class TreeCache {
         }
         refreshing = true
         lock.unlock()
+        let hidden = isShowingHidden
         queue.async { [workspace] in
-            let t = workspace.tree()
+            var hidden = hidden
+            var t = workspace.tree(showHidden: hidden)
+            while hidden != self.isShowingHidden {  // 構築中に切り替えられたらやり直す
+                hidden = self.isShowingHidden
+                t = workspace.tree(showHidden: hidden)
+            }
             var h = Hasher()
             func walk(_ n: [String: Any]) {
                 h.combine(n["path"] as? String ?? "")

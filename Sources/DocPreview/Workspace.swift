@@ -48,21 +48,42 @@ struct Workspace {
         return String(url.path.dropFirst(base.count))
     }
 
+    /// `.` 始まりのフォルダ/ファイルがツリーに含まれるか。初期ファイルが隠しパス配下なら表示が必要。
+    var initialFileIsHidden: Bool {
+        guard let f = initialFile, let rel = relativePath(of: f) else { return false }
+        return rel.split(separator: "/").contains { $0.hasPrefix(".") }
+    }
+
     /// ルート配下の対応ファイルのツリー（JSON 互換の辞書）。重いので UI スレッドでは呼ばないこと。
-    func tree() -> [String: Any] {
-        let paths = isGitRoot ? (gitFiles() ?? scanFiles()) : scanFiles()
-        return Self.buildTree(name: root.lastPathComponent, paths: paths)
+    /// `showHidden` のとき `.` 始まりのフォルダは中身を読まない遅延ロード用ノード（`lazy: true`）として入れる。
+    func tree(showHidden: Bool) -> [String: Any] {
+        let found = collect(under: "", showHidden: showHidden)
+        return ["name": root.lastPathComponent, "path": "", "type": "dir",
+                "children": Self.buildChildren(base: "", files: found.files, lazyDirs: found.lazyDirs)]
+    }
+
+    /// 遅延ロード用。指定ディレクトリ配下（隠しフォルダを含む）の子ノードを返す。
+    func subtree(_ rel: String) -> [[String: Any]] {
+        let found = collect(under: rel, showHidden: true)
+        return Self.buildChildren(base: rel, files: found.files, lazyDirs: found.lazyDirs)
     }
 
     private static func isDocument(_ rel: String) -> Bool {
         supportedExtensions.contains((rel as NSString).pathExtension.lowercased())
     }
 
+    private func collect(under rel: String, showHidden: Bool) -> (files: [String], lazyDirs: Set<String>) {
+        if isGitRoot, let r = gitCollect(under: rel, showHidden: showHidden) { return r }
+        return scanCollect(under: rel, showHidden: showHidden)
+    }
+
     /// git 管理下なら `git ls-files` を使う。.gitignore を尊重でき、全ディレクトリを歩くより圧倒的に速い。
-    private func gitFiles() -> [String]? {
+    private func gitCollect(under rel: String, showHidden: Bool) -> (files: [String], lazyDirs: Set<String>)? {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-        p.arguments = ["-C", root.path, "-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+        var args = ["-C", root.path, "-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+        if !rel.isEmpty { args += ["--", rel] }
+        p.arguments = args
         let out = Pipe()
         p.standardOutput = out
         p.standardError = Pipe()
@@ -70,62 +91,90 @@ struct Workspace {
         let data = out.fileHandleForReading.readDataToEndOfFile()  // 先に読み切らないとパイプが詰まる
         p.waitUntilExit()
         guard p.terminationStatus == 0 else { return nil }
+
         let fm = FileManager.default
-        return data.split(separator: 0).compactMap { chunk -> String? in
-            guard let rel = String(data: chunk, encoding: .utf8), Self.isDocument(rel),
-                  !rel.split(separator: "/").dropLast().contains(where: { $0.hasPrefix(".") }),
-                  fm.fileExists(atPath: root.appendingPathComponent(rel).path)  // 削除済みの追跡ファイルを除く
-            else { return nil }
-            return rel
+        let baseCount = rel.isEmpty ? 0 : rel.split(separator: "/").count
+        var files: [String] = []
+        var lazy = Set<String>()
+        for chunk in data.split(separator: 0) {
+            guard let path = String(data: chunk, encoding: .utf8), Self.isDocument(path) else { continue }
+            let parts = path.split(separator: "/").map(String.init)
+            // rel より下の最初の「.」始まりのディレクトリ
+            if let i = parts.dropLast().enumerated().first(where: { $0.offset >= baseCount && $0.element.hasPrefix(".") })?.offset {
+                if showHidden { lazy.insert(parts[0...i].joined(separator: "/")) }
+                continue
+            }
+            if parts.last!.hasPrefix(".") && !showHidden { continue }
+            if fm.fileExists(atPath: root.appendingPathComponent(path).path) { files.append(path) }  // 削除済みの追跡ファイルを除く
         }
+        return (files, lazy)
     }
 
     /// git 管理外のときのフォールバック。重いディレクトリは降りずにスキップする。
-    private func scanFiles() -> [String] {
+    private func scanCollect(under rel: String, showHidden: Bool) -> (files: [String], lazyDirs: Set<String>) {
         let fm = FileManager.default
-        guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return [] }
-        var result: [String] = []
+        let start = rel.isEmpty ? root : root.appendingPathComponent(rel)
+        guard let e = fm.enumerator(at: start, includingPropertiesForKeys: [.isDirectoryKey], options: []) else { return ([], []) }
+        var files: [String] = []
+        var lazy = Set<String>()
         let prefix = root.path + "/"
         for case let url as URL in e {
+            let name = url.lastPathComponent
             let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+            let path = String(url.path.dropFirst(prefix.count))
             if isDir {
-                if Self.ignoredNames.contains(url.lastPathComponent) { e.skipDescendants() }
+                if name == ".git" || Self.ignoredNames.contains(name) { e.skipDescendants(); continue }
+                if name.hasPrefix(".") {
+                    e.skipDescendants()
+                    if showHidden { lazy.insert(path) }
+                }
             } else if Self.supportedExtensions.contains(url.pathExtension.lowercased()) {
-                result.append(String(url.path.dropFirst(prefix.count)))
-                if result.count >= 5000 { break }
+                if name.hasPrefix(".") && !showHidden { continue }
+                files.append(path)
+                if files.count >= 5000 { break }
             }
         }
-        return result
+        return (files, lazy)
     }
 
-    /// 相対パスの一覧から、ディレクトリ→ファイルの順に並べたツリーを作る。
-    static func buildTree(name: String, paths: [String]) -> [String: Any] {
+    /// `base` 配下の相対パス一覧から、ディレクトリ→ファイルの順に並べた子ノードを作る。
+    static func buildChildren(base: String, files: [String], lazyDirs: Set<String>) -> [[String: Any]] {
         final class Node {
             var dirs: [String: Node] = [:]
             var files: [String] = []
+            var lazy = false
         }
         let rootNode = Node()
-        for path in paths {
-            let parts = path.split(separator: "/").map(String.init)
+        let baseCount = base.isEmpty ? 0 : base.split(separator: "/").count
+        func descend(_ parts: [String]) -> Node {
             var node = rootNode
-            for dir in parts.dropLast() {
+            for dir in parts.dropFirst(baseCount) {
                 if let n = node.dirs[dir] { node = n } else { let n = Node(); node.dirs[dir] = n; node = n }
             }
-            node.files.append(parts.last!)
+            return node
         }
+        for path in files {
+            let parts = path.split(separator: "/").map(String.init)
+            descend(Array(parts.dropLast())).files.append(parts.last!)
+        }
+        for dir in lazyDirs { descend(dir.split(separator: "/").map(String.init)).lazy = true }
+
         func sorted(_ names: [String]) -> [String] {
             names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
         }
         func convert(_ node: Node, rel: String) -> [[String: Any]] {
             let dirs = sorted(Array(node.dirs.keys)).map { name -> [String: Any] in
                 let path = rel.isEmpty ? name : rel + "/" + name
-                return ["name": name, "path": path, "type": "dir", "children": convert(node.dirs[name]!, rel: path)]
+                let child = node.dirs[name]!
+                var d: [String: Any] = ["name": name, "path": path, "type": "dir", "children": convert(child, rel: path)]
+                if child.lazy { d["lazy"] = true }
+                return d
             }
-            let files = sorted(node.files).map { name -> [String: Any] in
+            let fs = sorted(node.files).map { name -> [String: Any] in
                 ["name": name, "path": rel.isEmpty ? name : rel + "/" + name, "type": "file"]
             }
-            return dirs + files
+            return dirs + fs
         }
-        return ["name": name, "path": "", "type": "dir", "children": convert(rootNode, rel: "")]
+        return convert(rootNode, rel: base)
     }
 }
