@@ -4,21 +4,41 @@ import Foundation
 struct Workspace {
     let root: URL
     let initialFile: URL?
+    /// ディレクトリ指定で開いたときの、ルートからの相対パス（ツリーで展開して最初に表示する場所）
+    let initialDir: String?
+    /// ルートが git ルートかどうか
+    let isGitRoot: Bool
 
     static let supportedExtensions: Set<String> = ["md", "markdown", "html", "htm"]
     static let ignoredNames: Set<String> = ["node_modules", ".git", ".build", "build", "dist", "target", "Pods"]
 
-    /// パスがディレクトリならそれをルートに、ファイルならその親ディレクトリをルートにする。
+    /// パスから決める。ルートは次のとおり。
+    /// - git 管理下なら、ディレクトリ・ファイルを問わず git リポジトリのルート
+    /// - それ以外は、ディレクトリならそれ自体、ファイルならその親ディレクトリ
     init?(path: String) {
         let url = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL
         var isDir: ObjCBool = false
         guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else { return nil }
-        if isDir.boolValue {
-            root = url
-            initialFile = nil
+        let base = isDir.boolValue ? url : url.deletingLastPathComponent()
+        let gitRoot = Self.findGitRoot(from: base)
+        root = gitRoot ?? base
+        isGitRoot = gitRoot != nil
+        initialFile = isDir.boolValue ? nil : url
+        if isDir.boolValue, root.path != url.path {
+            initialDir = String(url.path.dropFirst(root.path.count + 1))
         } else {
-            root = url.deletingLastPathComponent()
-            initialFile = url
+            initialDir = nil
+        }
+    }
+
+    /// `.git`（ディレクトリ、worktree/submodule ではファイル）を上に辿って探す。
+    static func findGitRoot(from start: URL) -> URL? {
+        var dir = start.standardizedFileURL
+        while true {
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent(".git").path) { return dir }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { return nil }
+            dir = parent
         }
     }
 

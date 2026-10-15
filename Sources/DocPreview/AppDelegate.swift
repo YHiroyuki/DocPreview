@@ -93,6 +93,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 "name": ws.root.lastPathComponent,
                 "root": ws.root.path,
                 "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
+                "initialDir": ws.initialDir as Any,
+                "isGit": ws.isGitRoot,
                 "tree": ws.tree(),
                 "comments": store.load(),
                 "settings": [
