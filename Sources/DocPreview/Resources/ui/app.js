@@ -32,6 +32,16 @@ function saveComments() {
 const fileComments = () => state.comments.filter((c) => c.file === state.current);
 
 // ---------- ファイルツリー ----------
+const svg = (d) => `<svg class="ic" viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true">${d}</svg>`;
+const ICONS = {
+  chevron: svg('<path d="M6 3.5 10.5 8 6 12.5z"/>'),
+  folder: svg('<path d="M1.75 2.5A1.75 1.75 0 0 0 0 4.25v7.5C0 12.72.78 13.5 1.75 13.5h12.5c.97 0 1.75-.78 1.75-1.75v-6.5c0-.97-.78-1.75-1.75-1.75H7.7L6.4 2.7a1.75 1.75 0 0 0-1.24-.2z"/>'),
+  folderOpen: svg('<path d="M.5 3.75C.5 2.78 1.28 2 2.25 2h2.9c.46 0 .9.18 1.24.5L7.5 3.5h5.25c.97 0 1.75.78 1.75 1.75V6H3.4a1.75 1.75 0 0 0-1.67 1.22L.5 11.2zM2.2 7.5h12.9c.55 0 .93.54.74 1.05l-1.5 4.2a1.25 1.25 0 0 1-1.18.83H2A1.25 1.25 0 0 1 .8 12.1l1.2-3.7c.2-.5.65-.9 1.2-.9z"/>'),
+  md: svg('<path d="M3.75 1A1.75 1.75 0 0 0 2 2.75v10.5C2 14.22 2.78 15 3.75 15h8.5c.97 0 1.75-.78 1.75-1.75V5.5L9.5 1zM9 2.5l3.5 3.5H10A1 1 0 0 1 9 5zM4.5 9h1.1l1 1.6L7.7 9h1.1v3.5H7.7v-1.8l-1.1 1.4-1-1.4v1.8H4.5zm5.2 0h1.1v1.7l.7-.8.8.6-1.6 1.9-1.5-1.9.8-.6.7.8z"/>'),
+  html: svg('<path d="M3.75 1A1.75 1.75 0 0 0 2 2.75v10.5C2 14.22 2.78 15 3.75 15h8.5c.97 0 1.75-.78 1.75-1.75V5.5L9.5 1zM9 2.5l3.5 3.5H10A1 1 0 0 1 9 5zM6.2 8.2 4.4 10l1.8 1.8-.8.8L2.8 10l2.6-2.6zm3.6 0 .8-.8L13.2 10l-2.6 2.6-.8-.8L11.6 10z"/>'),
+};
+const fileIcon = (name) => (/\.html?$/i.test(name) ? ICONS.html : ICONS.md);
+
 function renderTree() {
   $('sidebar-title').textContent = state.name;
   const counts = {};
@@ -41,10 +51,19 @@ function renderTree() {
     const el = document.createElement('div');
     const label = document.createElement('div');
     label.className = 'node';
-    label.textContent = node.name;
     label.title = node.path;
+    const name = document.createElement('span');
+    name.className = 'name'; name.textContent = node.name;
+    const icon = document.createElement('span');
+    icon.className = 'icon';
     if (node.type === 'dir') {
-      el.className = 'dir' + (state.open.has(node.path) ? ' open' : '');
+      const open = state.open.has(node.path);
+      const chev = document.createElement('span');
+      chev.className = 'chev'; chev.innerHTML = ICONS.chevron;
+      icon.innerHTML = open ? ICONS.folderOpen : ICONS.folder;
+      icon.classList.add('folder');
+      label.append(chev, icon, name);
+      el.className = 'dir' + (open ? ' open' : '');
       label.onclick = () => {
         state.open.has(node.path) ? state.open.delete(node.path) : state.open.add(node.path);
         renderTree();
@@ -56,6 +75,8 @@ function renderTree() {
       el.append(kids);
     } else {
       if (node.path === state.current) label.classList.add('active');
+      icon.innerHTML = fileIcon(node.name);
+      label.append(icon, name);
       if (counts[node.path]) {
         const b = document.createElement('span');
         b.className = 'badge'; b.textContent = counts[node.path];
@@ -537,6 +558,15 @@ setupResizer('rz-right', 'right');
   applyPaneWidths();
   renderTree();
   renderComments();
-  const first = init.initialFile || firstFile(init.tree);
+  let first = init.initialFile;
+  if (!first && init.initialDir) {
+    // ディレクトリ指定で開いた場合は、その場所を展開して配下の最初のファイルを開く
+    state.open.add(init.initialDir);
+    expandTo(init.initialDir + '/x');
+    const find = (n) => (n.path === init.initialDir ? n : (n.children || []).map(find).find(Boolean));
+    const dirNode = find(init.tree);
+    first = dirNode && firstFile(dirNode);
+  }
+  first = first || firstFile(init.tree);
   if (first) openFile(first);
 })();
