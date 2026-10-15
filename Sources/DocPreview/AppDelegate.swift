@@ -1,161 +1,78 @@
 import AppKit
 import WebKit
 
-final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandlerWithReply, WKUIDelegate {
-    private var window: NSWindow!
-    private var webView: WKWebView!
-    private var scheme: SchemeHandler!
-    private var workspace: Workspace?
-    private var treeCache: TreeCache?
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// 開いているタブ（ウィンドウ）。タブごとに独立したワークスペースを持つ。
+    private var docs: [DocWindow] = []
+
+    private var activeDoc: DocWindow? { docs.first { $0.window.isKeyWindow } ?? docs.last }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
-
-        let uiRoot = Bundle.module.resourceURL!.appendingPathComponent("ui")
-        scheme = SchemeHandler(uiRoot: uiRoot)
-
-        let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(scheme, forURLScheme: "docpreview")
-        config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "native")
-        webView = WKWebView(frame: .zero, configuration: config)
-        webView.uiDelegate = self
-        webView.setValue(false, forKey: "drawsBackground")
-
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 1280, height: 820),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
-            backing: .buffered, defer: false
-        )
-        window.title = "DocPreview"
-        window.contentView = webView
-        window.center()
-        window.setFrameAutosaveName("DocPreviewMain")
-        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-
-        runDebugHooks()
 
         // 起動引数（最初の非オプション引数）をパスとして扱う。なければ選択ダイアログ。
         let arg = CommandLine.arguments.dropFirst().first { !$0.hasPrefix("-") }
-        if let arg, let ws = Workspace(path: arg) {
-            open(ws)
+        if let arg, openTarget(path: arg) {
+            runDebugHooks()
         } else {
-            openPanel()
+            // Finder / `open` 経由の起動では、このあと application(_:open:) でファイルが渡される
+            DispatchQueue.main.async { [self] in
+                if docs.isEmpty { openPanel() }
+                runDebugHooks()
+            }
         }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 
     func application(_ sender: NSApplication, open urls: [URL]) {
-        if let url = urls.first, let ws = Workspace(path: url.path) { open(ws) }
+        urls.forEach { openTarget(path: $0.path) }
     }
 
-    // MARK: - Workspace
+    // MARK: - Tabs
 
-    private func open(_ ws: Workspace) {
-        workspace = ws
-        let hidden = ws.initialFileIsHidden || UserDefaults.standard.bool(forKey: "showHidden")
-        treeCache = TreeCache(workspace: ws, showHidden: hidden)
-        treeCache?.refresh(force: true)  // 先に走査を始めておく
-        scheme.workspace = ws
-        window.title = "DocPreview — \(ws.root.lastPathComponent)"
-        webView.load(URLRequest(url: URL(string: "docpreview://app/ui/index.html")!))
+    /// パスを新しいタブで開く。同じ対象がすでに開いていればそのタブを前面にする。
+    @discardableResult
+    private func openTarget(path: String) -> Bool {
+        guard let ws = Workspace(path: path) else { return false }
+        let target = ws.initialFile
+            ?? ws.initialDir.map { ws.root.appendingPathComponent($0) }
+            ?? ws.root
+        if let existing = docs.first(where: { $0.target == target }) {
+            existing.window.makeKeyAndOrderFront(nil)
+            return true
+        }
+
+        let host = activeDoc?.window
+        let doc = DocWindow(workspace: ws, target: target, isFirst: docs.isEmpty)
+        doc.onClose = { [weak self] d in self?.docs.removeAll { $0 === d } }
+        doc.onDrop = { [weak self] urls in urls.forEach { self?.openTarget(path: $0.path) } }
+        docs.append(doc)
+        if let host { host.addTabbedWindow(doc.window, ordered: .above) }
+        doc.window.makeKeyAndOrderFront(nil)
+        doc.start()
+        return true
     }
 
-    @objc private func showSettings() {
-        webView.evaluateJavaScript("openSettings()")
-    }
-
-    @objc private func openPanel() {
+    @objc func openPanel() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.message = "プレビューするフォルダ、または Markdown / HTML ファイルを選択"
-        if panel.runModal() == .OK, let url = panel.url, let ws = Workspace(path: url.path) {
-            open(ws)
-        } else if workspace == nil {
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            panel.urls.forEach { openTarget(path: $0.path) }
+        } else if docs.isEmpty {
             NSApp.terminate(nil)
         }
     }
 
-    // MARK: - JS bridge
+    /// タブバーの「+」ボタン
+    @objc func newWindowForTab(_ sender: Any?) { openPanel() }
 
-    func userContentController(
-        _ ucc: WKUserContentController, didReceive message: WKScriptMessage,
-        replyHandler: @escaping (Any?, String?) -> Void
-    ) {
-        guard let body = message.body as? [String: Any], let action = body["action"] as? String else {
-            return replyHandler(nil, "bad message")
-        }
-        guard let ws = workspace, let cache = treeCache else { return replyHandler(nil, "no workspace") }
-        let store = CommentStore(root: ws.root)
-
-        switch action {
-        case "init":
-            let comments = store.load()
-            cache.tree { tree in
-                replyHandler([
-                    "name": ws.root.lastPathComponent,
-                    "root": ws.root.path,
-                    "initialFile": ws.initialFile.flatMap(ws.relativePath(of:)) as Any,
-                    "initialDir": ws.initialDir as Any,
-                    "isGit": ws.isGitRoot,
-                    "showHidden": cache.isShowingHidden,
-                    "tree": tree,
-                    "comments": comments,
-                    "settings": [
-                        "theme": UserDefaults.standard.string(forKey: "theme") ?? "light",
-                        "fontSize": UserDefaults.standard.object(forKey: "fontSize") as? Int ?? 16,
-                        "leftWidth": UserDefaults.standard.object(forKey: "leftWidth") as? Int ?? 260,
-                        "rightWidth": UserDefaults.standard.object(forKey: "rightWidth") as? Int ?? 300,
-                    ],
-                ], nil)
-            }
-        case "saveSettings":
-            if let s = body["settings"] as? [String: Any] {
-                if let t = s["theme"] as? String { UserDefaults.standard.set(t, forKey: "theme") }
-                for key in ["fontSize", "leftWidth", "rightWidth"] {
-                    if let v = s[key] as? Int { UserDefaults.standard.set(v, forKey: key) }
-                }
-            }
-            replyHandler(true, nil)
-        case "setShowHidden":
-            let value = body["value"] as? Bool ?? false
-            UserDefaults.standard.set(value, forKey: "showHidden")
-            cache.setShowHidden(value) { replyHandler($0, nil) }
-        case "children":
-            cache.subtree(body["path"] as? String ?? "") { replyHandler($0, nil) }
-        case "tree":
-            cache.tree { replyHandler($0, nil) }
-        case "poll":
-            var mtime = 0.0
-            if let rel = body["path"] as? String, !rel.isEmpty,
-               let date = try? FileManager.default.attributesOfItem(
-                atPath: ws.root.appendingPathComponent(rel).path)[.modificationDate] as? Date {
-                mtime = date.timeIntervalSince1970
-            }
-            cache.refresh()  // 3 秒以上経っていれば裏で再走査
-            replyHandler(["mtime": mtime, "tree": cache.cachedSignature], nil)
-        case "saveComments":
-            store.save(body["json"] as? String ?? "[]")
-            replyHandler(true, nil)
-        case "openPanel":
-            DispatchQueue.main.async { self.openPanel() }
-            replyHandler(true, nil)
-        case "launchClaude":
-            let prompt = body["prompt"] as? String ?? ""
-            DispatchQueue.global().async {
-                do {
-                    try ClaudeLauncher.launch(prompt: prompt, cwd: ws.root)
-                    replyHandler(true, nil)
-                } catch {
-                    replyHandler(nil, error.localizedDescription)
-                }
-            }
-        default:
-            replyHandler(nil, "unknown action")
-        }
+    @objc private func showSettings() {
+        activeDoc?.webView.evaluateJavaScript("openSettings()")
     }
 
     // MARK: - Menu
@@ -177,9 +94,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         ])
         let open = NSMenuItem(title: "開く…", action: #selector(openPanel), keyEquivalent: "o")
         open.target = self
-        add("ファイル", [open])
+        add("ファイル", [open, .separator(), NSMenuItem(title: "タブを閉じる", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")])
         func findItem(_ title: String, _ js: String, _ key: String, _ mods: NSEvent.ModifierFlags = .command) -> NSMenuItem {
-            let item = BlockItem(title: title, key: key) { [weak self] in self?.webView.evaluateJavaScript(js) }
+            let item = BlockItem(title: title, key: key) { [weak self] in self?.activeDoc?.webView.evaluateJavaScript(js) }
             item.keyEquivalentModifierMask = mods
             return item
         }
@@ -194,7 +111,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             findItem("次を検索", "findNext()", "g"),
             findItem("前を検索", "findPrev()", "g", [.command, .shift]),
         ])
+        add("ウインドウ", [
+            NSMenuItem(title: "次のタブ", action: #selector(NSWindow.selectNextTab(_:)), keyEquivalent: "}"),
+            NSMenuItem(title: "前のタブ", action: #selector(NSWindow.selectPreviousTab(_:)), keyEquivalent: "{"),
+            .separator(),
+            NSMenuItem(title: "しまう", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m"),
+        ])
         NSApp.mainMenu = main
+        NSApp.windowsMenu = main.items.last?.submenu
     }
 }
 
@@ -208,6 +132,7 @@ extension AppDelegate {
         guard env["DOCPREVIEW_EVAL"] != nil || env["DOCPREVIEW_SNAPSHOT"] != nil else { return }
         let delay = Double(env["DOCPREVIEW_DELAY"] ?? "") ?? 3
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [self] in
+            guard let webView = docs.first?.webView else { return NSApp.terminate(nil) }
             func finish() { NSApp.terminate(nil) }
             func snapshot() {
                 guard let path = env["DOCPREVIEW_SNAPSHOT"] else { return finish() }
