@@ -10,7 +10,7 @@ struct Workspace {
     let isGitRoot: Bool
 
     static let supportedExtensions: Set<String> = ["md", "markdown", "html", "htm"]
-    static let ignoredNames: Set<String> = ["node_modules", ".git", ".build", "build", "dist", "target", "Pods"]
+    static let ignoredNames: Set<String> = ["node_modules", ".git", ".build", "build", "dist", "target", "Pods", "vendor", ".gradle", ".venv", "venv", "__pycache__"]
 
     /// パスから決める。ルートは次のとおり。
     /// - git 管理下なら、ディレクトリ・ファイルを問わず git リポジトリのルート
@@ -48,37 +48,84 @@ struct Workspace {
         return String(url.path.dropFirst(base.count))
     }
 
-    /// ルート配下の対応ファイルのツリーを JSON 互換の辞書で返す。空ディレクトリは除く。
+    /// ルート配下の対応ファイルのツリー（JSON 互換の辞書）。重いので UI スレッドでは呼ばないこと。
     func tree() -> [String: Any] {
-        var budget = 5000
-        let children = scan(root, rel: "", budget: &budget)
-        return ["name": root.lastPathComponent, "path": "", "type": "dir", "children": children]
+        let paths = isGitRoot ? (gitFiles() ?? scanFiles()) : scanFiles()
+        return Self.buildTree(name: root.lastPathComponent, paths: paths)
     }
 
-    private func scan(_ dir: URL, rel: String, budget: inout Int) -> [[String: Any]] {
-        let fm = FileManager.default
-        guard let items = try? fm.contentsOfDirectory(
-            at: dir, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        ) else { return [] }
+    private static func isDocument(_ rel: String) -> Bool {
+        supportedExtensions.contains((rel as NSString).pathExtension.lowercased())
+    }
 
-        var dirs: [[String: Any]] = []
-        var files: [[String: Any]] = []
-        for item in items.sorted(by: { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }) {
-            guard budget > 0 else { break }
-            let name = item.lastPathComponent
-            let itemRel = rel.isEmpty ? name : rel + "/" + name
-            let isDir = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
+    /// git 管理下なら `git ls-files` を使う。.gitignore を尊重でき、全ディレクトリを歩くより圧倒的に速い。
+    private func gitFiles() -> [String]? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+        p.arguments = ["-C", root.path, "-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--others", "--exclude-standard"]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = Pipe()
+        do { try p.run() } catch { return nil }
+        let data = out.fileHandleForReading.readDataToEndOfFile()  // 先に読み切らないとパイプが詰まる
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        let fm = FileManager.default
+        return data.split(separator: 0).compactMap { chunk -> String? in
+            guard let rel = String(data: chunk, encoding: .utf8), Self.isDocument(rel),
+                  !rel.split(separator: "/").dropLast().contains(where: { $0.hasPrefix(".") }),
+                  fm.fileExists(atPath: root.appendingPathComponent(rel).path)  // 削除済みの追跡ファイルを除く
+            else { return nil }
+            return rel
+        }
+    }
+
+    /// git 管理外のときのフォールバック。重いディレクトリは降りずにスキップする。
+    private func scanFiles() -> [String] {
+        let fm = FileManager.default
+        guard let e = fm.enumerator(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]) else { return [] }
+        var result: [String] = []
+        let prefix = root.path + "/"
+        for case let url as URL in e {
+            let isDir = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
             if isDir {
-                if Self.ignoredNames.contains(name) { continue }
-                let kids = scan(item, rel: itemRel, budget: &budget)
-                if !kids.isEmpty {
-                    dirs.append(["name": name, "path": itemRel, "type": "dir", "children": kids])
-                }
-            } else if Self.supportedExtensions.contains(item.pathExtension.lowercased()) {
-                budget -= 1
-                files.append(["name": name, "path": itemRel, "type": "file"])
+                if Self.ignoredNames.contains(url.lastPathComponent) { e.skipDescendants() }
+            } else if Self.supportedExtensions.contains(url.pathExtension.lowercased()) {
+                result.append(String(url.path.dropFirst(prefix.count)))
+                if result.count >= 5000 { break }
             }
         }
-        return dirs + files
+        return result
+    }
+
+    /// 相対パスの一覧から、ディレクトリ→ファイルの順に並べたツリーを作る。
+    static func buildTree(name: String, paths: [String]) -> [String: Any] {
+        final class Node {
+            var dirs: [String: Node] = [:]
+            var files: [String] = []
+        }
+        let rootNode = Node()
+        for path in paths {
+            let parts = path.split(separator: "/").map(String.init)
+            var node = rootNode
+            for dir in parts.dropLast() {
+                if let n = node.dirs[dir] { node = n } else { let n = Node(); node.dirs[dir] = n; node = n }
+            }
+            node.files.append(parts.last!)
+        }
+        func sorted(_ names: [String]) -> [String] {
+            names.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        }
+        func convert(_ node: Node, rel: String) -> [[String: Any]] {
+            let dirs = sorted(Array(node.dirs.keys)).map { name -> [String: Any] in
+                let path = rel.isEmpty ? name : rel + "/" + name
+                return ["name": name, "path": path, "type": "dir", "children": convert(node.dirs[name]!, rel: path)]
+            }
+            let files = sorted(node.files).map { name -> [String: Any] in
+                ["name": name, "path": rel.isEmpty ? name : rel + "/" + name, "type": "file"]
+            }
+            return dirs + files
+        }
+        return ["name": name, "path": "", "type": "dir", "children": convert(rootNode, rel: "")]
     }
 }
