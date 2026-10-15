@@ -123,6 +123,14 @@ final class DocWindow: NSObject, WKScriptMessageHandlerWithReply, WKUIDelegate, 
         case "saveComments":
             store.save(body["json"] as? String ?? "[]")
             replyHandler(true, nil)
+        case "copyText":
+            // WKWebView のカスタムスキームは navigator.clipboard が使えないため、ネイティブで書き込む
+            let text = body["text"] as? String ?? ""
+            DispatchQueue.main.async {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(text, forType: .string)
+                replyHandler(true, nil)
+            }
         case "title":
             // タブの表示名は、開いているファイル名に追従させる
             if let name = body["name"] as? String, !name.isEmpty { window.title = name }

@@ -29,7 +29,10 @@
   <aside id="comments">
     <div id="comments-head">
       <span>コメント <span id="comment-count"></span></span>
-      <button id="send" title="このファイルの未送信コメントを Claude Code に渡す">Claude Code に依頼</button>
+      <span class="actions">
+        <button id="copy-prompt" title="このファイルの未送信コメントを Claude Code への依頼文にしてクリップボードにコピー">依頼文をコピー</button>
+        <button id="send" title="このファイルの未送信コメントを Claude Code に渡す">Claude Code に依頼</button>
+      </span>
     </div>
     <div id="comment-list"></div>
   </aside>

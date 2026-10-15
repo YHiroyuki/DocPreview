@@ -52,3 +52,8 @@
 - 起動直後の `application(_:open:)` と競合しないよう、引数なし起動のファイル選択ダイアログは次の run loop に遅らせ、タブが無いときだけ出す。
 - Dock へのドロップと「このアプリで開く」には `Info.plist` の `CFBundleDocumentTypes` が必要（`scripts/build-app.sh` で出力）。
 - 複数タブの実機確認は `open -a build/DocPreview.app <path>` を続けて実行する（`-n` を付けると別インスタンスになりタブにならない）。デバッグフック（EVAL/SNAPSHOT）は最初のタブのみが対象。
+
+## 2026-10-15（依頼文のコピー）
+- クリップボードへの書き込みは `navigator.clipboard` ではなくネイティブ（`copyText` → `NSPasteboard`）。`docpreview://` はセキュアコンテキストではなく、WKWebView では使えない可能性が高いため。
+- コピーしても `sent` にはしない。貼り付け先で実際に依頼されたかをアプリが知る手段がなく、誤って「送信済み」にすると次回の依頼から漏れるため。
+- 検証: `DOCPREVIEW_EVAL` でコメントを `state.comments` に積んで `#copy-prompt` を click し、`pbpaste` で確認できる（`saveComments` を呼ばなければ保存されない）。

@@ -69,3 +69,4 @@ button:disabled { opacity:.4; cursor:default; }
 .icon-btn:hover { background:rgba(128,128,128,.18); }
 .icon-btn.on { background:var(--accent); color:var(--accent-fg); }
 .node .loading { margin-left:auto; color:var(--muted); font-size:11px; }
+#comments-head .actions { display:flex; flex-wrap:wrap; gap:6px; }
